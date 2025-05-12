@@ -1,11 +1,10 @@
 package com.liftlab.loadbalancer.controllers;
 
-import com.liftlab.loadbalancer.models.ListResponseEntity;
+import com.liftlab.loadbalancer.models.PagedResponse;
 import com.liftlab.loadbalancer.models.ResponseMessage;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import com.liftlab.loadbalancer.services.LoadBalancerService;
@@ -53,7 +52,7 @@ public class ServerRegistryController {
     }
 
     @GetMapping("/")
-    public ListResponseEntity<PageImpl<String>> listServers(
+    public ResponseEntity<PagedResponse<String>> listServers(
             @RequestParam(required = false, defaultValue = "0") Integer pageNo,
             @RequestParam(required = false, defaultValue = "10") Integer pageSize
     ) {
@@ -61,6 +60,6 @@ public class ServerRegistryController {
 
         if(pageSize == null)
             pageSize = 10;
-        return service.getActiveServerUrls(Pageable.ofSize(pageSize).withPage(pageNo));
+        return ResponseEntity.ok(service.getActiveServerUrls(Pageable.ofSize(pageSize).withPage(pageNo)));
     }
 }

@@ -1,9 +1,7 @@
 package com.liftlab.loadbalancer.services;
 
 import com.liftlab.loadbalancer.algorithms.LoadBalancingAlgorithm;
-import com.liftlab.loadbalancer.algorithms.RandomAlgorithm;
-import com.liftlab.loadbalancer.algorithms.RoundRobinAlgorithm;
-import com.liftlab.loadbalancer.models.ListResponseEntity;
+import com.liftlab.loadbalancer.models.PagedResponse;
 import com.liftlab.loadbalancer.models.ResponseMessage;
 import jakarta.servlet.http.HttpServletRequest;
 import com.liftlab.loadbalancer.models.BackendServer;
@@ -22,8 +20,8 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import java.io.IOException;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.NoSuchElementException;
 
-import static com.liftlab.loadbalancer.ApplicationConstants.RANDOM_ALGORITHM_NAME;
 import static com.liftlab.loadbalancer.ApplicationConstants.ROUND_ROBIN_ALGORITHM_NAME;
 
 @Service
@@ -67,7 +65,17 @@ public class LoadBalancerService {
             return new ResponseEntity<>(new ResponseMessage("No server registered yet"),
                     HttpStatus.NOT_ACCEPTABLE);
 
-        if(activeServers.removeIf(server -> server.getUrl().equalsIgnoreCase(url)))
+        List<BackendServer> toBeDeleted =
+                activeServers.stream().filter(server -> server.getUrl().equalsIgnoreCase(url)).toList();
+        if(toBeDeleted.isEmpty())
+            return new ResponseEntity<>(new ResponseMessage("No server registered with the URL: " + url),
+                    HttpStatus.NOT_ACCEPTABLE);
+        else if (toBeDeleted.size() > 1) {
+            return new ResponseEntity<>(new ResponseMessage("Multiple servers found with URL: " + url),
+                    HttpStatus.NOT_ACCEPTABLE);
+        }
+
+        if(removeActiveServer(toBeDeleted.getFirst()))
             return new ResponseEntity<>(new ResponseMessage("Successfully added server with URL : " + url),
                     HttpStatus.OK);
         return new ResponseEntity<>(new ResponseMessage("Failed to remove server"),
@@ -112,18 +120,27 @@ public class LoadBalancerService {
         }
     }
 
-    public ListResponseEntity<String> getActiveServerUrls(Pageable page) {
+    public PagedResponse<String> getActiveServerUrls(Pageable page) {
         LOGGER.info("Fetching all active servers urls");
 
         List<String> activeServers = serverRegistryService.getAvailableServers().stream().filter(BackendServer::isHealthy).map(BackendServer::getUrl).toList();
+        if(activeServers.isEmpty())
+            throw new NoSuchElementException("No active servers found");
 
         PageImpl<String> serversPage = new PageImpl<>(activeServers, page, activeServers.size());
-        return new ListResponseEntity<>(serversPage, HttpStatus.OK);
+        return new PagedResponse<>().convertToPagedResponse(serversPage);
     }
     public List<BackendServer> getActiveServers() {
         LOGGER.info("Fetching all active servers");
 
         return serverRegistryService.getAvailableServers().stream().filter(BackendServer::isHealthy).toList();
+    }
+
+    public boolean removeActiveServer(BackendServer server) {
+        LOGGER.info("Removing active server with URL: {}", server.getUrl());
+
+        serverRegistryService.removeServer(server);
+        return true;
     }
 
     public ResponseEntity<ResponseMessage> poolAndForwardRequest(HttpServletRequest incomingRequest, String targetUrl) throws NoHandlerFoundException {

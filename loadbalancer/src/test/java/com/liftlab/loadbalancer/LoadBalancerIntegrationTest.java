@@ -1,16 +1,21 @@
 package com.liftlab.loadbalancer;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.liftlab.loadbalancer.fixtures.ServerFixtures;
-import com.liftlab.loadbalancer.models.ListResponseEntity;
+import com.liftlab.loadbalancer.models.PagedResponse;
 import com.liftlab.loadbalancer.models.ResponseMessage;
 import org.junit.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
+import com.fasterxml.jackson.core.type.TypeReference;
 
 import java.util.Objects;
 
@@ -24,15 +29,25 @@ public class LoadBalancerIntegrationTest extends ServerFixtures {
     private final RestTemplate restTemplate = new RestTemplate();
 
     @Test
-    public void testLoadBalancer() {
+    public void testLoadBalancer() throws JsonProcessingException {
         // Set algorithm
         ResponseEntity<String> algorithmResponse = restTemplate.getForEntity("http://localhost:" + port + "/liftlab/lb/algorithm/roundrobin", String.class);
         assertEquals(200, algorithmResponse.getStatusCode().value());
 
         // Remove all servers
-        ResponseEntity<String> allServers = restTemplate.getForEntity("http://localhost:" + port + "/liftlab/servers/", String.class);
-        new ObjectMapper().convertValue(allServers.getBody(), PageImpl.class).stream()
-                .forEach( serverUrl -> restTemplate.delete("http://localhost:" + port + "/liftlab/servers/?url=" + serverUrl));
+        ResponseEntity<String> allServers;
+        try {
+            allServers = restTemplate.getForEntity("http://localhost:" + port + "/liftlab/servers/", String.class);
+        } catch (HttpClientErrorException e){
+            allServers = new ResponseEntity<>("No data", HttpStatus.NOT_FOUND);
+        }
+        if(allServers.getStatusCode().value() == 200) {
+            JavaType type = new ObjectMapper().getTypeFactory()
+                    .constructParametricType(PagedResponse.class, String.class);
+
+            PagedResponse<String> pagedResponse = Objects.requireNonNull(new ObjectMapper().readValue(allServers.getBody(), type));
+            pagedResponse.getContent().forEach(serverUrl -> restTemplate.delete("http://localhost:" + port + "/liftlab/servers/?url=" + serverUrl));
+        }
 
         // Add server 1
         ResponseEntity<String> server1Response = restTemplate.postForEntity("http://localhost:" + port + "/liftlab/servers/?url=" + backendServer1.getUrl(), null, String.class);
